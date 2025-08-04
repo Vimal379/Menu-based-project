@@ -1,0 +1,14 @@
+streamlit
+psutil
+pywhatkit
+twilio
+googlesearch-python
+requests
+beautifulsoup4
+numpy
+matplotlib
+opencv-python
+paramiko
+Pillow
+boto3
+python-dotenv
