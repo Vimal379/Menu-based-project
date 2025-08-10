@@ -74,3 +74,13 @@ Made with ❤️ by **Vimal Kumar**
 ## 📷 Preview
 
 > Add screenshots or GIFs of your Streamlit app UI for better clarity!
+> <img width="6969" height="1432" alt="deepseek_mermaid_20250809_1d3041" src="https://github.com/user-attachments/assets/159c8063-dbcf-4f7b-902d-321b1b2aecff" />
+
+> <img width="1920" height="1020" alt="Screenshot 2025-08-10 020151" src="https://github.com/user-attachments/assets/9199e994-e209-487f-895b-07c3a5c4f65c" />
+
+> <img width="1920" height="1020" alt="Screenshot 2025-08-10 011623" src="https://github.com/user-attachments/assets/b72ce87a-37c3-4434-990b-cea56dfc61f0" />
+
+> <img width="1920" height="1020" alt="Screenshot 2025-08-10 005806" src="https://github.com/user-attachments/assets/ffa5856a-69df-481d-83c5-fd224402ac6c" />
+
+> <img width="1920" height="1020" alt="Screenshot 2025-08-10 005825" src="https://github.com/user-attachments/assets/98e7d035-5404-44bf-868e-d4c1f531ce27" />
+
