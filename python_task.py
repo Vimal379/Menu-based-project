@@ -1,6 +1,6 @@
 import streamlit as st
 import psutil
-import datetime
+from datetime import datetime 
 import pywhatkit
 import smtplib
 from email.message import EmailMessage
@@ -16,13 +16,34 @@ import speech_recognition as sr
 import os
 from PIL import Image
 import time
-# import streamlit as st
 import paramiko
 from io import StringIO
-# import time
 import socket
 import boto3
+import folium
+import geocoder
+from streamlit_folium import folium_static
+import pytz
+from instagrapi import Client
+from tempfile import NamedTemporaryFile
+import google.generativeai as genai
+from dotenv import load_dotenv
 
+# Load variables from .env
+load_dotenv()
+
+# Twilio credentials
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+# Email credentials
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_SENDER_PASSWORD = os.getenv("EMAIL_SENDER_PASSWORD")
+
+# API keys
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Set page config
 st.set_page_config(page_title="Multi-Tool Application", layout="wide")
 
@@ -32,38 +53,100 @@ menu_choice = st.sidebar.radio("Select a Task", [
     "System Info",
     "Messaging",
     "Email",
+    "Instagram",
+    "Coding Assistant Chatbot",
     "Web Automation",
     "Image Processing",
     "Linux Automation",
     "GitHub Automation",
     "AWS Automation",
     "Linux Commands",
+    "Geo Location",
+    "Weather Explorer",
     "Blogs & More"
 ])
 
+
 # Task 1 - Read RAM
 def show_ram_info():
-    st.header("System RAM Information")
-    mem = psutil.virtual_memory()
+    st.header("Real-Time RAM Monitor")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total RAM", f"{mem.total / (1024**3):.2f} GB")
-    with col2:
-        st.metric("Available RAM", f"{mem.available / (1024**3):.2f} GB")
-    with col3:
-        st.metric("Used RAM", f"{mem.used / (1024**3):.2f} GB")
+    # Initialize session state
+    if 'monitoring' not in st.session_state:
+        st.session_state.monitoring = False
+    if 'ram_history' not in st.session_state:
+        st.session_state.ram_history = []
     
-    st.progress(mem.percent / 100, text=f"RAM Usage: {mem.percent}%")
-
+    # Create toggle button
+    start_stop = st.button(
+        label="▶️ Start Monitoring" if not st.session_state.monitoring else "⏹️ Stop Monitoring",
+        key="monitor_toggle"
+    )
+    
+    # Toggle monitoring state
+    if start_stop:
+        st.session_state.monitoring = not st.session_state.monitoring
+        st.rerun()
+    
+    # Create placeholders
+    metric_placeholder = st.empty()
+    progress_placeholder = st.empty()
+    chart_placeholder = st.empty()
+    
+    # Main monitoring logic
+    if st.session_state.monitoring:
+        # Get current RAM usage
+        mem = psutil.virtual_memory()
+        
+        # Update metrics
+        with metric_placeholder.container():
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total RAM", f"{mem.total / (1024**3):.2f} GB")
+            col2.metric("Available RAM", f"{mem.available / (1024**3):.2f} GB")
+            col3.metric("Used RAM", f"{mem.used / (1024**3):.2f} GB", 
+                       delta=f"{mem.percent}% used")
+        
+        # Update progress bar
+        progress_placeholder.progress(mem.percent / 100, text=f"RAM Usage: {mem.percent}%")
+        
+        # Update history chart
+        st.session_state.ram_history.append(mem.percent)
+        if len(st.session_state.ram_history) > 60:  # Keep last 60 seconds
+            st.session_state.ram_history.pop(0)
+        
+        # Display chart
+        with chart_placeholder.container():
+            st.subheader("Usage History (Last 60 seconds)")
+            st.line_chart(st.session_state.ram_history)
+        
+        # Schedule next update
+        time.sleep(1)
+        st.rerun()
+    else:
+        # Static display when not monitoring
+        mem = psutil.virtual_memory()
+        
+        with metric_placeholder.container():
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total RAM", f"{mem.total / (1024**3):.2f} GB")
+            col2.metric("Available RAM", f"{mem.available / (1024**3):.2f} GB")
+            col3.metric("Used RAM", f"{mem.used / (1024**3):.2f} GB")
+        
+        progress_placeholder.progress(mem.percent / 100, text=f"RAM Usage: {mem.percent}%")
+        
+        if st.session_state.ram_history:
+            with chart_placeholder.container():
+                st.subheader("Usage History")
+                st.line_chart(st.session_state.ram_history)
+                
 # Task 2 - Send WhatsApp Message
 def send_whatsapp_message():
     st.header("Send WhatsApp Message")
-    phone = st.text_input("Enter phone number with country code (e.g., +919001422079)")
+    phone = st.text_input("Enter phone number with country code (e.g., +919001232345)")
     message = st.text_area("Message content")
     
     if st.button("Schedule Message"):
-        now = datetime.datetime.now()
+        now = datetime.now()  # Correct usage after proper import
         hrs = now.hour
         mins = now.minute + 1  # Send 1 minute from now
         
@@ -76,9 +159,13 @@ def send_whatsapp_message():
 # Task 3 - Send Email
 def send_email():
     st.header("Send Email with Attachment")
+    if not EMAIL_SENDER or not EMAIL_SENDER_PASSWORD:
+        st.error("Please set your email sender and password in the code.")
+        return
     
-    sender = st.text_input("Sender Email", "vimalprajapat@gmail.com")
-    sender_password = st.text_input("Sender Password", type="password")
+    sender = EMAIL_SENDER 
+    sender_password = EMAIL_SENDER_PASSWORD
+
     receiver = st.text_input("Receiver Email")
     subject = st.text_input("Subject")
     message = st.text_area("Message")
@@ -110,41 +197,43 @@ def send_email():
 
 # Task 4/5 - Send SMS/Call (Twilio)
 def twilio_messaging():
-    st.header("Twilio Messaging Services")
-    
-    service = st.radio("Select Service", ["SMS", "Voice Call"])
-    
-    account_sid = 'Your account sid'
-    auth_token = 'Your token'
-    twilio_number = 'twilio number'
+    st.header("📞 Twilio Messaging Services")
 
-    recipient_number = st.text_input("Recipient Phone Number")
-    
+    service = st.radio("Select Service", ["SMS", "Voice Call"])
+    recipient_number = st.text_input("Recipient Phone Number (with country code)")
+
     if service == "SMS":
-        message = st.text_area("Message Content")
+        message_body = st.text_area("Message Content")
         if st.button("Send SMS"):
+            if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
+                st.error("❌ Twilio credentials are missing or invalid.")
+                return
             try:
-                client = Client(account_sid, auth_token)
+                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
                 message = client.messages.create(
-                    body=message,
-                    from_=twilio_number,
+                    body=message_body,
+                    from_=TWILIO_PHONE_NUMBER,
                     to=recipient_number
                 )
-                st.success(f"Message sent with SID: {message.sid}")
+                st.success(f"✅ Message sent! SID: {message.sid}")
             except Exception as e:
-                st.error(f"Error: {e}")
-    else:
+                st.error(f"⚠️ Error sending SMS: {e}")
+
+    elif service == "Voice Call":
         if st.button("Make Call"):
+            if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
+                st.error("❌ Twilio credentials are missing or invalid.")
+                return
             try:
-                client = Client(account_sid, auth_token)
+                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
                 call = client.calls.create(
                     to=recipient_number,
-                    from_=twilio_number,
+                    from_=TWILIO_PHONE_NUMBER,
                     url="http://demo.twilio.com/docs/voice.xml"
                 )
-                st.success(f"Call initiated! SID: {call.sid}")
+                st.success(f"📞 Call initiated! SID: {call.sid}")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"⚠️ Error making call: {e}")
 
 # Task 7 - Google Search
 def google_search():
@@ -318,26 +407,55 @@ def linux_automation():
     # Command selection from reference
     st.subheader("Command Selection")
     command_categories = {
-        'File Operations': {
-            '1': ('List files (detailed)', 'ls -la'),
-            '2': ('Change directory', 'cd [dir]'),
-            '3': ('Print current directory', 'pwd'),
-            '4': ('Create directory', 'mkdir [name]'),
-            '5': ('Remove empty directory', 'rmdir [name]'),
-            '6': ('Remove file/directory', 'rm -r [name]'),
-            '7': ('Copy file/directory', 'cp -r [src] [dest]'),
-            '8': ('Move/rename file', 'mv [old] [new]'),
-            '9': ('Create empty file', 'touch [file]'),
-            '10': ('Show file content', 'cat [file]')
-        },
-        'System Information': {
-            '1': ('Kernel/system info', 'uname -a'),
-            '2': ('Disk space (human)', 'df -h'),
-            '3': ('Directory size', 'du -sh [dir]'),
-            '4': ('Memory usage', 'free -m'),
-            '5': ('Process monitor (basic)', 'top')
-        }
+    'File Operations': {
+        '1': ('List files (detailed)', 'ls -la'),
+        '2': ('Print current directory', 'pwd')
+    },
+
+    'System Information': {
+        '1': ('Kernel/system info', 'uname -a'),
+        '2': ('Disk space (human)', 'df -h'),
+        '3': ('Memory usage', 'free -m'),
+        '4': ('Process monitor (basic)', 'top'),
+        '5': ('Current logged-in users', 'who'),
+        '6': ('System uptime', 'uptime'),
+        '7': ('List all processes', 'ps aux'),
+        '8': ('Check OS version', 'cat /etc/redhat-release'),
+        '9': ('Check CPU info', 'lscpu')
+    },
+
+    'Networking': {
+        '1': ('Show IP address', 'ip addr show'),
+        '2': ('Check network connections', 'netstat -tuln'),
+        '3': ('Check open ports', 'ss -tuln'),
+        '4': ('Restart networking service', 'sudo systemctl restart NetworkManager')
+    },
+
+    'User Management': {
+        '1': ('List all users', 'cut -d: -f1 /etc/passwd')
+    },
+
+    'Package Management (RHEL/CentOS/Fedora)': {
+        '1': ('Update package list', 'sudo dnf check-update'),
+        '2': ('Upgrade all packages', 'sudo dnf upgrade -y'),
+        '3': ('List installed packages', 'dnf list installed')
+    },
+
+    'Service Management (systemd)': {
+        '1': ('Check service status (example: sshd)', 'systemctl status sshd')
+    },
+
+    'SELinux': {
+        '1': ('Check SELinux status', 'sestatus')
+    },
+
+    'Firewall (firewalld)': {
+        '1': ('Check firewall status', 'sudo firewall-cmd --state'),
+        '2': ('List open ports', 'sudo firewall-cmd --list-ports'),
+        '3': ('Reload firewall', 'sudo firewall-cmd --reload')
     }
+    }
+
     
     # Create two columns: one for command selection, one for custom command
     col1, col2 = st.columns(2)
@@ -470,7 +588,7 @@ def linux_automation():
                 pass
 
 
-# GitHub Automation Tool
+#Task 16 - GitHub Automation Tool
 def run_command(command, cwd=None):
     result = subprocess.run(command, shell=True, text=True, capture_output=True, cwd=cwd)
     st.code(result.stdout)
@@ -580,7 +698,7 @@ def github_Automation():
     elif task == "Fork + Clone and Submit Pull Request":
         fork_and_pr_ui()
 
-# AWS SERVICE
+#Task 17 - AWS SERVICE
 def get_session():
     return boto3.session.Session()
 
@@ -659,9 +777,7 @@ def ec2_task():
             st.error(f"Error fetching instances: {e}")
 
 
-
-
-# linux Command 
+#Task 18 -  linux Command 
 def linux_command():
     st.header("📚 Linux Command Reference Guide")
     
@@ -763,12 +879,301 @@ def linux_command():
             st.markdown("---")
 
 
+#Task 19 - Geo Location Tool
+def geo_location():
+    st.title("📍 Device Geolocation Finder")
+    
+    # Get device IP and location
+    try:
+        # Get public IP
+        ip = geocoder.ip('me').ip
+        # Get location details
+        g = geocoder.ip(ip)
+        
+        with st.expander("🌍 Your Location Details"):
+            st.subheader("Device Information")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Public IP Address", ip)
+                st.metric("City", g.city)
+                st.metric("ISP", g.org)
+            with col2:
+                st.metric("Country", g.country)
+                st.metric("Region/State", g.state)
+                st.metric("Postal Code", g.postal)
+            
+            st.subheader("Map View")
+            # Create map centered at the location
+            m = folium.Map(location=[g.lat, g.lng], zoom_start=10)
+            folium.Marker(
+                [g.lat, g.lng],
+                popup=f"Your Location: {g.city}",
+                tooltip="Click for details"
+            ).add_to(m)
+            folium_static(m)
+            
+            st.warning("Note: This shows your approximate location based on your public IP. Accuracy depends on your ISP.")
+            
+    except Exception as e:
+        st.error(f"Could not determine location. Error: {e}")
+        st.info("This might happen if you're on a local network or behind a VPN.")
+    
+    # Additional network information
+    with st.expander("🔍 Network Details"):
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            
+            st.write("**Local Network Information**")
+            st.code(f"""
+            Hostname: {hostname}
+            Local IP: {local_ip}
+            Public IP: {ip if 'ip' in locals() else 'Not available'}
+            """)
+            
+            st.write("**How This Works**")
+            st.markdown("""
+            - Uses your public IP address to estimate location
+            - Accuracy depends on your ISP's geolocation data
+            - Typically accurate to city-level
+            - VPNs/proxies will show the exit node location
+            """)
+            
+        except Exception as e:
+            st.error(f"Could not fetch network details: {e}")
+
+    st.success("Location detection complete!")
+
+# Task 20 - Weather App
+def weather_app():
+    st.title("⛅ Weather Explorer")
+    
+    # API configuration (replace with your OpenWeather API key)
+    API_KEY = OPENWEATHER_API_KEY  # Use your own API key here
+    BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+    FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+    
+    # Location input
+    with st.expander("🔍 Search Location", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            city = st.text_input("City Name", "London")
+        with col2:
+            country = st.text_input("Country Code (optional)", "UK")
+        
+        search_query = f"{city},{country}" if country else city
+    
+    # Fetch weather data
+    if st.button("Get Weather"):
+        try:
+            # Current weather
+            current_params = {
+                'q': search_query,
+                'appid': API_KEY,
+                'units': 'metric'  # For Celsius
+            }
+            current_response = requests.get(BASE_URL, params=current_params).json()
+            
+            # 5-day forecast
+            forecast_params = {
+                'q': search_query,
+                'appid': API_KEY,
+                'units': 'metric',
+                'cnt': 40  # 5 days data (8 forecasts per day)
+            }
+            forecast_response = requests.get(FORECAST_URL, params=forecast_params).json()
+            
+            # Display current weather
+            with st.expander("🌤️ Current Weather", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Temperature", f"{current_response['main']['temp']}°C")
+                    st.metric("Feels Like", f"{current_response['main']['feels_like']}°C")
+                with col2:
+                    st.metric("Humidity", f"{current_response['main']['humidity']}%")
+                    st.metric("Pressure", f"{current_response['main']['pressure']} hPa")
+                with col3:
+                    st.metric("Wind Speed", f"{current_response['wind']['speed']} m/s")
+                    st.metric("Visibility", f"{current_response.get('visibility', 'N/A')} m")
+                
+                # Weather description with icon
+                weather_desc = current_response['weather'][0]['description'].title()
+                weather_icon = current_response['weather'][0]['icon']
+                st.image(f"http://openweathermap.org/img/wn/{weather_icon}@2x.png", width=100)
+                st.subheader(weather_desc)
+                
+                # Sunrise/sunset
+                sunrise = datetime.fromtimestamp(current_response['sys']['sunrise'], pytz.UTC)
+                sunset = datetime.fromtimestamp(current_response['sys']['sunset'], pytz.UTC)
+                st.write(f"**Sunrise:** {sunrise.strftime('%H:%M')} | **Sunset:** {sunset.strftime('%H:%M')}")
+            
+            # Display forecast
+            with st.expander("📅 5-Day Forecast"):
+                # Group by day
+                daily_forecasts = {}
+                for forecast in forecast_response['list']:
+                    date = datetime.fromtimestamp(forecast['dt']).strftime('%Y-%m-%d')
+                    if date not in daily_forecasts:
+                        daily_forecasts[date] = []
+                    daily_forecasts[date].append(forecast)
+                
+                # Display each day
+                for date, forecasts in daily_forecasts.items():
+                    day_name = datetime.strptime(date, '%Y-%m-%d').strftime('%A')
+                    st.subheader(f"{day_name} ({date})")
+                    
+                    cols = st.columns(len(forecasts))
+                    for idx, forecast in enumerate(forecasts):
+                        time = datetime.fromtimestamp(forecast['dt']).strftime('%H:%M')
+                        temp = forecast['main']['temp']
+                        icon = forecast['weather'][0]['icon']
+                        
+                        with cols[idx]:
+                            st.write(f"**{time}**")
+                            st.image(f"http://openweathermap.org/img/wn/{icon}.png", width=50)
+                            st.write(f"{temp}°C")
+                            st.write(forecast['weather'][0]['description'].title())
+            
+            st.success("Weather data fetched successfully!")
+            
+        except Exception as e:
+            st.error(f"Error fetching weather data: {str(e)}")
+            st.info("Please check the city name or your API key.")
+    
+    # API documentation reference
+    st.markdown("""
+    ---
+    *Using [OpenWeatherMap API](https://openweathermap.org/api)*
+    """)
+
+# Task 21 - Instagram Photo Poster
+def instagram_post_app():
+    # Streamlit UI setup
+    # st.set_page_config(page_title="Instagram Photo Poster", page_icon="📸", layout="centered")
+    st.title("📸 Instagram Photo Poster")
+
+    # Sidebar login credentials
+    st.header("Login Credentials")
+    username = st.text_input("Instagram Username")
+    password = st.text_input("Instagram Password", type="password")
+
+    # Image upload & caption
+    uploaded_file = st.file_uploader("Upload an image to post", type=["jpg", "jpeg", "png"])
+    caption = st.text_area("Write your caption here...")
+
+    # Post button
+    if st.button("🚀 Post to Instagram"):
+        if not username or not password:
+            st.error("Please enter both username and password in the sidebar.")
+        elif not uploaded_file:
+            st.error("Please upload an image.")
+        else:
+            with st.spinner("Logging in and uploading..."):
+                try:
+                    cl = Client()
+                    cl.login(username, password)
+
+                    # Save uploaded image temporarily
+                    with NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                        tmp_file.write(uploaded_file.read())
+                        temp_path = tmp_file.name
+
+                    # Upload to Instagram
+                    cl.photo_upload(path=temp_path, caption=caption or "")
+                    st.success("✅ Photo uploaded successfully!")
+
+                    # Cleanup temp file
+                    os.remove(temp_path)
+                    cl.logout()
+
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+
+# Task 22 - Coding Assistant Chatbot
+def coding_assistant_chatbot():
+    # Hardcoded API Key and Model
+    API_KEY = GEMINI_API_KEY  # Replace with your actual key
+    MODEL_NAME = "gemini-1.5-flash"
+
+    # Configure Gemini
+    genai.configure(api_key=API_KEY)
+    model = genai.GenerativeModel(MODEL_NAME)
+
+    st.title("💻 Coding Assistant Chatbot (Gemini API)")
+
+    # Initialize chat history
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # Input box for user query
+    user_input = st.text_input("Ask your coding question here:", key="user_input")
+
+    if st.button("Send"):
+        if user_input.strip():
+            # Add user query to chat history
+            st.session_state.chat_history.append({"role": "user", "text": user_input})
+
+            # Get response from Gemini
+            try:
+                response = model.generate_content(
+                    f"You are a coding assistant. Format answers with markdown and syntax highlighting when showing code.\nUser: {user_input}"
+                )
+                bot_reply = response.text.strip()
+
+                # Ensure code formatting
+                if "```" not in bot_reply and any(word in bot_reply.lower() for word in ["code", "python", "example", "function"]):
+                    bot_reply = f"```python\n{bot_reply}\n```"
+
+                # Add bot reply to chat history
+                st.session_state.chat_history.append({"role": "assistant", "text": bot_reply})
+
+            except Exception as e:
+                bot_reply = f"⚠️ Error: {str(e)}"
+                st.session_state.chat_history.append({"role": "assistant", "text": bot_reply})
+
+    # Display chat history
+    for chat in st.session_state.chat_history:
+        if chat["role"] == "user":
+            st.markdown(f"**🧑 You:** {chat['text']}")
+        else:
+            st.markdown(f"**🤖 Bot:**\n\n{chat['text']}", unsafe_allow_html=False)
+
 
 # Blogs and More 
 def blog_More():
     # st.set_page_config(page_title="Linux Exploration Blog", layout="wide")
 
     st.title("🌐 Linux Exploration Blog")
+    
+    # Blog links section with interactive buttons
+    st.subheader("📚 Explore My Latest Tech Blogs")
+    
+    # Create columns for better layout
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### Linux & DevOps")
+        if st.button("🏢 Why Big Companies Love Linux", use_container_width=True):
+            st.markdown("[Why Big Companies Love Linux: The Ultimate Guide to Enterprise Adoption](https://medium.com/@vimalprajapat379/why-big-companies-love-linux-the-ultimate-guide-to-enterprise-adoption-5dc11124330a)", unsafe_allow_html=True)
+        if st.button("🔄 Git & GitHub Mastery", use_container_width=True):
+            st.markdown("[Mastering Git & GitHub: From Zero to Pull Requests](https://medium.com/@vimalprajapat379/mastering-git-github-from-zero-to-pull-requests-e4362c8f1bb5)", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### AWS & Cloud")
+        if st.button("☁️ AWS Success Stories", use_container_width=True):
+            st.markdown("[AWS Success Stories: How Top Companies Leverage Cloud Computing](https://medium.com/@vimalprajapat379/aws-success-stories-how-top-companies-leverage-cloud-computing-%EF%B8%8F-dbf45c8c5280)", unsafe_allow_html=True)
+        if st.button("🗃️ AWS S3 Storage Classes", use_container_width=True):
+            st.markdown("[☁️ AWS S3 Storage Classes Demystified](https://medium.com/@vimalprajapat379/%EF%B8%8F-aws-s3-storage-classes-demystified-from-basics-to-expert-level-insights-9d766100fb5a)", unsafe_allow_html=True)
+        if st.button("🤖 Amazon Q AI Assistant", use_container_width=True):
+            st.markdown("[Amazon Q: The Smart AI Assistant for AWS](https://medium.com/@vimalprajapat379/amazon-q-the-smart-ai-assistant-for-aws-beginner-advanced-3e13f0029a5e)", unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("### Web Development")
+        if st.button("🖥️ 50 Essential HTML Tags", use_container_width=True):
+            st.markdown("[50 Essential HTML Tags Every Web Developer Should Know](https://medium.com/@vimalprajapat379/50-essential-html-tags-every-web-developer-should-know-c0772a5180e4)", unsafe_allow_html=True)
+    
+    # Blog links section
+    st.markdown("""---""")
 
     with st.expander("1. 🏢 Companies Using Linux"):
         st.markdown("""
@@ -827,7 +1232,45 @@ def blog_More():
     kill -20 <PID>  # equivalent to Ctrl+Z
         """)
 
+    with st.expander("7. 🐍 Technical Difference Between Tuple and List (Python)"):
+        st.markdown("""
+        ### Key Differences:
+        
+        | Feature        | Tuple                      | List                       |
+        |---------------|---------------------------|---------------------------|
+        | Mutability    | Immutable (cannot be changed after creation) | Mutable (can be modified) |
+        | Syntax        | Uses parentheses `()`     | Uses square brackets `[]` |
+        | Performance   | Faster iteration          | Slightly slower           |
+        | Memory        | More memory efficient     | Less memory efficient     |
+        | Use Cases     | Fixed data, dictionary keys | Dynamic collections      |
+        
+        ### Example Code:
+        ```python
+        # Tuple creation
+        coordinates = (10.5, 20.3)
+        
+        # List creation
+        colors = ['red', 'green', 'blue']
+        
+        # Attempting to modify (will raise error for tuple)
+        colors[0] = 'yellow'  # Works
+        # coordinates[0] = 15.2  # TypeError: 'tuple' object does not support item assignment
+        ```
+        
+        ### When to Use Each:
+        - **Use tuples** for:
+          - Data that shouldn't change (like coordinates, dates)
+          - Dictionary keys (since they're hashable)
+          - Function arguments and return values when order matters
+          
+        - **Use lists** for:
+          - Collections that need to grow/shrink
+          - When you need to modify elements
+          - Implementing stacks/queues
+        """)
+
     st.success("✍️ Created as part of Linux learning ")
+
 
 # Main app logic
 if menu_choice == "System Info":
@@ -860,9 +1303,16 @@ elif menu_choice == "AWS Automation":
     ec2_task()
 elif menu_choice == "Linux Commands":
     linux_command()
+elif menu_choice == "Geo Location":
+    geo_location()
 elif menu_choice == "Blogs & More":
     blog_More()
-
+elif menu_choice == "Weather Explorer":
+    weather_app()
+elif menu_choice == "Instagram":
+    instagram_post_app()
+elif menu_choice == "Coding Assistant Chatbot":
+    coding_assistant_chatbot()
 
 # Footer
 st.sidebar.markdown("---")

@@ -1,6 +1,9 @@
+# requirements.txt
 streamlit
 psutil
 pywhatkit
+smtplib
+email
 twilio
 googlesearch-python
 requests
@@ -8,7 +11,14 @@ beautifulsoup4
 numpy
 matplotlib
 opencv-python
+speechrecognition
+pillow
 paramiko
-Pillow
 boto3
+folium
+geocoder
+streamlit-folium
+pytz
+instagrapi
 python-dotenv
+google
